@@ -1,12 +1,9 @@
 package elasticsearch
 
 import (
-	"crypto/tls"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"regexp"
@@ -18,39 +15,32 @@ import (
 )
 
 type ElasticsearchPlugin struct {
-	prefix   string
-	endpoint string
-	username string
-	password string
+	Client Client
+	prefix string
 }
 
 func (p ElasticsearchPlugin) FetchMetrics() (map[string]float64, error) {
-	stat := make(map[string]float64)
-	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
-		},
-	}
-	req, _ := http.NewRequest("GET", strings.Join([]string{p.endpoint, "_cluster", "health"}, "/"), nil)
-	req.SetBasicAuth(p.username, p.password)
-	// send request
-	res, err := client.Do(req)
+	clusterHealth := &ClusterHealth{}
+	client := p.Client
+	body, err := client.GetClusterHealth()
 	if err != nil {
-		fmt.Println(err)
-		return nil, err
+		fmt.Printf("error: %v", err)
 	}
-	defer res.Body.Close()
-	// read response
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		fmt.Println(err)
-		return nil, err
-	}
-	// unmarshall json
-	json.Unmarshal(body, &stat)
-	return stat, nil
+	json.Unmarshal(body, &clusterHealth)
+	return map[string]float64{
+		"active_primary_shards":            clusterHealth.ActivePrimaryShards,
+		"active_shards_percent_as_number":  clusterHealth.ActiveShardsPercentAsNumber,
+		"active_shards":                    clusterHealth.ActiveShards,
+		"delayed_unassigned_shards":        clusterHealth.DelayedUnassignedShards,
+		"initializing_shards":              clusterHealth.InitializingShards,
+		"number_of_data_nodes":             clusterHealth.NumberOfDataNodes,
+		"number_of_in_flight_fetch":        clusterHealth.NumberOfInFlightFetch,
+		"number_of_nodes":                  clusterHealth.NumberOfNodes,
+		"number_of_pending_tasks":          clusterHealth.NumberOfPendingTasks,
+		"relocating_shards":                clusterHealth.RelocatingShards,
+		"task_max_waiting_in_queue_millis": clusterHealth.TaskMaxWaitingInQueueMillis,
+		"unassigned_shards":                clusterHealth.UnassignedShards,
+	}, nil
 }
 
 func (p ElasticsearchPlugin) GraphDefinition() map[string]plugin.Graphs {
@@ -64,15 +54,15 @@ func (p ElasticsearchPlugin) GraphDefinition() map[string]plugin.Graphs {
 			Unit:  "integer",
 			Metrics: []plugin.Metrics{
 				{
-					Name:    "initializing_shards",
-					Label:   "initializing shards",
+					Name:    "active_primary_shards",
+					Label:   "active primary shards",
 					Diff:    false,
-					Stacked: true,
+					Stacked: false,
 					Scale:   0,
 				},
 				{
-					Name:    "unassigned_shards",
-					Label:   "unassigned shards",
+					Name:    "active_shards",
+					Label:   "active shards",
 					Diff:    false,
 					Stacked: true,
 					Scale:   0,
@@ -85,22 +75,22 @@ func (p ElasticsearchPlugin) GraphDefinition() map[string]plugin.Graphs {
 					Scale:   0,
 				},
 				{
-					Name:    "active_shards",
-					Label:   "active shards",
+					Name:    "initializing_shards",
+					Label:   "initializing shards",
 					Diff:    false,
 					Stacked: true,
 					Scale:   0,
 				},
 				{
-					Name:    "active_primary_shards",
-					Label:   "active primary shards",
+					Name:    "relocating_shards",
+					Label:   "relocating shards",
 					Diff:    false,
-					Stacked: false,
+					Stacked: true,
 					Scale:   0,
 				},
 				{
-					Name:    "relocating_shards",
-					Label:   "relocating shards",
+					Name:    "unassigned_shards",
+					Label:   "unassigned shards",
 					Diff:    false,
 					Stacked: true,
 					Scale:   0,
@@ -140,9 +130,11 @@ func Do() {
 		*endpoint = strings.Join([]string{parsedUrl.Scheme, "://", parsedUrl.Host}, "")
 	}
 	plugin.NewMackerelPlugin(&ElasticsearchPlugin{
-		prefix:   *prefix,
-		endpoint: *endpoint,
-		username: *username,
-		password: *password,
+		Client: &ElasticsearchClient{
+			endpoint: *endpoint,
+			username: *username,
+			password: *password,
+		},
+		prefix: *prefix,
 	}).Run()
 }

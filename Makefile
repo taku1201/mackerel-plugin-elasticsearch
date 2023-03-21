@@ -1,7 +1,7 @@
 BINARY_NAME := mackerel-plugin-elasticsearch
 LDFLAGS := "-w -s"
 
-.PHONY: build clean
+.PHONY: build clean test
 
 build:
 	GOARCH=arm64 GOOS=darwin go build -o build/${BINARY_NAME}-darwin-arm64 -ldflags=${LDFLAGS} -trimpath ./cmd/${BINARY_NAME}
@@ -11,5 +11,8 @@ build:
 
 clean:
 	rm -f build/${BINARY_NAME}-*
+
+test:
+	@go test -v -cover
 
 all: clean build ;
